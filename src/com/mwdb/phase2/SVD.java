@@ -1,0 +1,166 @@
+package com.mwdb.phase2;
+
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+import org.apache.commons.math3.linear.RealMatrix;
+
+import Jama.EigenvalueDecomposition;
+import Jama.Matrix;
+import Jama.SingularValueDecomposition;
+
+import com.mwdb.phase1.Word;
+import com.mwdb.util.PrecomputeUtil;
+
+/**
+ * @author Karthik
+ *
+ */
+public class SVD {
+	private Map<Integer, Double[][]> svdMap;
+	public Map<Integer, Map<String, Double[]>> sensorVocMap;
+	public Map<Integer, Map<String, Map<String, Word>>> precomputedSVDMap;
+	
+	public Map<Integer, Double[][]> getSvdMap() {
+		return svdMap;
+	}
+
+	public void setSvdMap(Map<Integer, Double[][]> svdMap) {
+		this.svdMap = svdMap;
+	}
+	
+	public SVD(PrecomputeUtil util){
+		svdMap = new LinkedHashMap<Integer, Double[][]>();
+		sensorVocMap = util.getSensorVocMap();
+		precomputedSVDMap = util.getPrecomputedSVDMap();
+	}
+	
+	
+	
+
+	public  Map<Integer, Double[][]> getMatrixForSVD(){
+		svdMap = new HashMap<Integer, Double[][]>();
+
+		for (Integer sensor : precomputedSVDMap.keySet()) {
+			Double[][] sensorMatrix = new Double[precomputedSVDMap.get(sensor)
+					.size()][sensorVocMap.get(sensor).size()];
+			int i = 0, j = 0;
+			// System.out.println("The gesture number with sensor "+sensor+" sensor with size"+precomputedSVDMap.get(sensor).size());
+			for (String gestureSensor : precomputedSVDMap.get(sensor).keySet()) {
+				j = 0;
+				for (String term : sensorVocMap.get(sensor).keySet()) {
+					if (precomputedSVDMap.get(sensor).get(gestureSensor)
+							.containsKey(term))
+						sensorMatrix[i][j] = precomputedSVDMap.get(sensor)
+								.get(gestureSensor).get(term).getTFIdf();
+					else
+						sensorMatrix[i][j] = 0.0;
+					j++;
+				}
+
+				i++;
+			}
+			svdMap.put(sensor, sensorMatrix);
+		}
+
+		return svdMap;
+	}
+	
+	// FUNCTION TO  CALCULATE THE COVARIANCE
+	public double[][] calculateCoVariance(double[][] testarray) {
+		MyCovariance cv=new MyCovariance(testarray);
+		RealMatrix coVarMatrix=cv.getCovar();
+		double[][] coVarMat=coVarMatrix.getData();
+		return coVarMat;
+	}
+	
+	public Map<Integer, Map<Integer, Map<String, Double>>> getLatentSemanticsFromSVD(
+			double[][] svdMatrix, Integer sensor) {
+		Map<Integer, Map<Integer, Map<String, Double>>> finalSVDMap = new HashMap<Integer, Map<Integer, Map<String, Double>>>();
+		Map<String, Double[]> uniqueWordsMap = sensorVocMap.get(sensor);
+		Matrix svdObj = new Matrix(svdMatrix);
+		// calculate SVD
+		SingularValueDecomposition svd = new SingularValueDecomposition(svdObj);
+		double[][] vtranspose = svd.getV().transpose().getArray();
+		//System.out.println("V matrix");
+		// printMatrix(svd.getV().transpose());
+		Map<Integer, Map<String, Double>> topicsMap = PrecomputeUtil
+				.generateTopicsMapFromVMatrix(uniqueWordsMap, vtranspose);
+		finalSVDMap.put(sensor, topicsMap);
+		return finalSVDMap;
+	}
+
+	public Map<Integer,Map<Integer, Map<String, Double>>> getLatentSemanticsFromPCA(double[][] outputFromCoVariance, Integer sensor) {
+		// TODO Auto-generated method stub
+		Map<Integer,Map<Integer, Map<String, Double>>>finalPCAMap = new HashMap<Integer,Map<Integer, Map<String, Double>>>();
+		Map<String, Double[]> uniqueWordsMap = sensorVocMap.get(sensor);
+		
+		Matrix inputMatrixToPCA=new Matrix(outputFromCoVariance);
+		
+		EigenvalueDecomposition pca=new EigenvalueDecomposition(inputMatrixToPCA);
+		double[][] vtranspose = pca.getV().transpose().getArray();
+		
+		// Populate the final PCA map
+		Map<Integer,Map<String,Double>> topicsMap= PrecomputeUtil.generateTopicsMapFromVMatrixForPCA(uniqueWordsMap, vtranspose);
+		
+		finalPCAMap.put(sensor, topicsMap);
+		
+		return finalPCAMap;
+	}
+
+	
+	public Map<Integer, Map<String, Double>> getLatentSemanticsForGesturesFromSVD(double[][] svdMatrix, Map<String, Integer> gesturesMap) {
+		Matrix svdObj = new Matrix(svdMatrix);
+		Map<Integer, Map<String, Double>> finalGestureTopicMap = new HashMap<Integer, Map<String,Double>>();
+		// calculate SVD
+		SingularValueDecomposition svd = new SingularValueDecomposition(svdObj);
+		double[][] vtranspose = svd.getV().transpose().getArray();
+		for(int i = 0; i < 3; i++){
+			Map<String, Double> gestureValuesMap = new HashMap<String, Double>();
+			double[] values = vtranspose[i];
+			for (int j = 0; j < values.length; j++) {
+				for(String gesture : gesturesMap.keySet()){
+					if(j == gesturesMap.get(gesture)){
+						gestureValuesMap.put(gesture, values[j]);
+						break;
+					}
+				}
+			}
+			finalGestureTopicMap.put(i, gestureValuesMap);
+		}
+		System.out.println("V matrix");
+		return finalGestureTopicMap;
+	}
+	
+	public Map<Integer, Map<String, Double>> getLatentSemanticsForGesturesFromPCA(double[][] outputFromCoVariance, Map<String, Integer> gesturesMap) {
+		//Matrix svdObj = new Matrix(outputFromCoVariance);
+		Map<Integer, Map<String, Double>> finalGestureTopicMap = new HashMap<Integer, Map<String,Double>>();
+		// calculate SVD
+        Matrix inputMatrixToPCA=new Matrix(outputFromCoVariance);
+		
+		EigenvalueDecomposition pca=new EigenvalueDecomposition(inputMatrixToPCA);
+		double[][] vtranspose = pca.getV().transpose().getArray();
+		//SingularValueDecomposition svd = new SingularValueDecomposition(svdObj);
+		//double[][] vtranspose = svd.getV().transpose().getArray();
+		int k=0;
+		for(int i = vtranspose.length-1; i > vtranspose.length-4; i--){
+			Map<String, Double> gestureValuesMap = new HashMap<String, Double>();
+			double[] values = vtranspose[i];
+			for (int j =0; j < values.length; j++) {
+				for(String gesture : gesturesMap.keySet()){
+					if(j == gesturesMap.get(gesture)){
+						gestureValuesMap.put(gesture, values[j]);
+					}
+				}
+			}
+			k++;
+			finalGestureTopicMap.put(k, gestureValuesMap);
+		}
+		System.out.println("V matrix");
+		return finalGestureTopicMap;
+	}
+	
+	
+	
+}

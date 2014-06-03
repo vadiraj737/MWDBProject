@@ -1,0 +1,334 @@
+package com.mwdb.util;
+
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Set;
+
+import com.mwdb.phase1.Word;
+
+public class PrecomputeUtil {
+	public Map<Integer, Map<String, Double[]>> sensorVocMap;
+	public Map<Integer, Map<String, Map<String, Word>>> precomputedSVDMap;
+	public Map<Integer, Map<String, Map<String, Word>>> precomputedQuerySVDMap;
+	
+	public Map<Integer, Map<String, Map<String, Word>>> getPrecomputedSVDMap() {
+		return precomputedSVDMap;
+	}
+
+	public Map<Integer, Map<String, Double[]>> getSensorVocMap() {
+		return sensorVocMap;
+	}
+
+	public void setPrecomputedSVDMap(
+			Map<Integer, Map<String, Map<String, Word>>> precomputedSVDMap) {
+		this.precomputedSVDMap = precomputedSVDMap;
+	}
+
+	public void setSensorVocMap(Map<Integer, Map<String, Double[]>> sensorVocMap) {
+		this.sensorVocMap = sensorVocMap;
+	}
+
+	/**
+	 * @param precomputedMap
+	 *            : Sensor -> Gesture -> Words -> TF value This function is
+	 *            called in MAIN to initialize the member: precomputedSVDMap
+	 */
+	public void precomputeSVDMap(
+			Map<String, Map<Integer, Map<String, Word>>> precomputedMap,
+			int size) {
+		// Gesture File names
+		sensorVocMap = new LinkedHashMap<Integer, Map<String, Double[]>>();
+		double rowNum = 0;
+		// Map contains sensor number and its unique words with inverse document
+		// frequencies
+
+		// Map contains sensor->sensor_gesture-> terms-> tf, tfidf
+		Map<Integer, Map<String, Map<String, Word>>> svdPrecomputeMap = new HashMap<Integer, Map<String, Map<String, Word>>>();
+		Set<String> gestureKeys = precomputedMap.keySet();
+		for (String gesture : gestureKeys) {
+			// Sensor File Names
+			Set<Integer> sensors = precomputedMap.get(gesture).keySet();
+			for (Integer sensor : sensors) {
+				// Words for sensor 1 to n
+				// Gesture file's sensor's terms
+				Map<String, Word> docMap = precomputedMap.get(gesture).get(
+						sensor);
+				Set<String> words = docMap.keySet();
+				rowNum = 0;
+				for (String word : words) {
+
+					Word w = docMap.get(word);
+
+					// Creates sensor vocabulary Map
+					if (!svdPrecomputeMap.containsKey(sensor)) {
+						Map<String, Word> termMap = new HashMap<String, Word>();
+						Map<String, Map<String, Word>> sensorGestureMap = new HashMap<String, Map<String, Word>>();
+						Word term = new Word();
+						term.setTf(w.getTf());
+						term.setRawTF(w.getRawTF());
+						termMap.put(word, term);
+						sensorGestureMap.put(sensor + "_" + gesture, termMap);
+						svdPrecomputeMap.put(sensor, sensorGestureMap);
+					}
+
+					else {
+						if (!svdPrecomputeMap.get(sensor).containsKey(
+								sensor + "_" + gesture)) {
+							Map<String, Word> termMap = new HashMap<String, Word>();
+							Map<String, Map<String, Word>> sensorGestureMap = svdPrecomputeMap
+									.get(sensor);
+							Word term = new Word();
+							term.setTf(w.getTf());
+							term.setRawTF(w.getRawTF());
+							termMap.put(word, term);
+							sensorGestureMap.put(sensor + "_" + gesture,
+									termMap);
+							svdPrecomputeMap.put(sensor, sensorGestureMap);
+						} else {
+							if (!svdPrecomputeMap.get(sensor)
+									.get(sensor + "_" + gesture)
+									.containsKey(word)) {
+								Map<String, Word> termMap = svdPrecomputeMap
+										.get(sensor)
+										.get(sensor + "_" + gesture);
+								Word term = new Word();
+								term.setTf(w.getTf());
+								term.setRawTF(w.getRawTF());
+								termMap.put(word, term);
+								svdPrecomputeMap.get(sensor)
+										.get(sensor + "_" + gesture)
+										.put(word, term);
+							}
+						}
+					}
+
+					// Creates unique words with their document frequencies for
+					// each sensors
+					if (sensorVocMap.containsKey(sensor)) {
+						if (sensorVocMap.get(sensor).containsKey(word)) {
+							Double[] df = sensorVocMap.get(sensor).get(word);
+							df[0] += 1;
+							sensorVocMap.get(sensor).put(word, df);
+						} else {
+							Double[] d = new Double[2];
+							d[0] = 1.0;
+							d[1] = rowNum;
+							sensorVocMap.get(sensor).put(word, d);
+						}
+
+					} else {
+						Map<String, Double[]> wordMap = new LinkedHashMap<String, Double[]>();
+
+						Double[] d = new Double[2];
+						d[0] = 1.0;
+						d[1] = rowNum;
+						wordMap.put(word, d);
+						sensorVocMap.put(sensor, wordMap);
+					}
+					rowNum++;
+				}
+
+			}
+		}
+
+		for (Integer sensor : sensorVocMap.keySet()) {
+			for (String word : sensorVocMap.get(sensor).keySet()) {
+				Double[] idf = sensorVocMap.get(sensor).get(word);
+				idf[0] = Math.log(size / idf[0]);
+				sensorVocMap.get(sensor).put(word, idf);
+			}
+		}
+
+		for (Integer sensor : svdPrecomputeMap.keySet()) {
+			for (String gestureSensor : svdPrecomputeMap.get(sensor).keySet()) {
+				for (String term : svdPrecomputeMap.get(sensor)
+						.get(gestureSensor).keySet()) {
+					Word t = svdPrecomputeMap.get(sensor).get(gestureSensor)
+							.get(term);
+					Double[] idf = sensorVocMap.get(sensor).get(term);
+					t.setTFIdf(t.getTf() * idf[0]);
+					svdPrecomputeMap.get(sensor).get(gestureSensor)
+							.put(term, t);
+				}
+			}
+		}
+
+		precomputedSVDMap = svdPrecomputeMap;
+		// return precomputedSVDMap;
+	}
+
+	public void precomputeQuerySVDMap(
+			Map<String, Map<Integer, Map<String, Word>>> precomputedMap,
+			int size) {
+		// Gesture File names
+		// sensorVocMap = new LinkedHashMap<Integer, Map<String, Double[]>>();
+		// double rowNum = 0;
+		// Map contains sensor number and its unique words with inverse document
+		// frequencies
+
+		// Map contains sensor->sensor_gesture-> terms-> tf, tfidf
+		Map<Integer, Map<String, Map<String, Word>>> svdPrecomputeMap = new HashMap<Integer, Map<String, Map<String, Word>>>();
+		Set<String> gestureKeys = precomputedMap.keySet();
+		for (String gesture : gestureKeys) {
+			// Sensor File Names
+			Set<Integer> sensors = precomputedMap.get(gesture).keySet();
+			for (Integer sensor : sensors) {
+				// Words for sensor 1 to n
+				// Gesture file's sensor's terms
+				Map<String, Word> docMap = precomputedMap.get(gesture).get(
+						sensor);
+				Set<String> words = docMap.keySet();
+				// rowNum = 0;
+				for (String word : words) {
+
+					Word w = docMap.get(word);
+
+					// Creates sensor vocabulary Map
+					if (!svdPrecomputeMap.containsKey(sensor)) {
+						Map<String, Word> termMap = new HashMap<String, Word>();
+						Map<String, Map<String, Word>> sensorGestureMap = new HashMap<String, Map<String, Word>>();
+						Word term = new Word();
+						term.setTf(w.getTf());
+						term.setRawTF(w.getRawTF());
+						termMap.put(word, term);
+						sensorGestureMap.put(sensor + "_" + gesture, termMap);
+						svdPrecomputeMap.put(sensor, sensorGestureMap);
+					}
+
+					else {
+						if (!svdPrecomputeMap.get(sensor).containsKey(
+								sensor + "_" + gesture)) {
+							Map<String, Word> termMap = new HashMap<String, Word>();
+							Map<String, Map<String, Word>> sensorGestureMap = svdPrecomputeMap
+									.get(sensor);
+							Word term = new Word();
+							term.setTf(w.getTf());
+							term.setRawTF(w.getRawTF());
+							termMap.put(word, term);
+							sensorGestureMap.put(sensor + "_" + gesture,
+									termMap);
+							svdPrecomputeMap.put(sensor, sensorGestureMap);
+						} else {
+							if (!svdPrecomputeMap.get(sensor)
+									.get(sensor + "_" + gesture)
+									.containsKey(word)) {
+								Map<String, Word> termMap = svdPrecomputeMap
+										.get(sensor)
+										.get(sensor + "_" + gesture);
+								Word term = new Word();
+								term.setTf(w.getTf());
+								term.setRawTF(w.getRawTF());
+								termMap.put(word, term);
+								svdPrecomputeMap.get(sensor)
+										.get(sensor + "_" + gesture)
+										.put(word, term);
+							}
+						}
+					}
+
+					// Creates unique words with their document frequencies for
+					// each sensors
+					/*
+					 * if (sensorVocMap.containsKey(sensor)) { if
+					 * (sensorVocMap.get(sensor).containsKey(word)) { Double[]
+					 * df = sensorVocMap.get(sensor).get(word); df[0] += 1;
+					 * sensorVocMap.get(sensor).put(word, df); } else { Double[]
+					 * d = new Double[2]; d[0] = 1.0; d[1] = rowNum;
+					 * sensorVocMap.get(sensor).put(word, d); }
+					 * 
+					 * } else { Map<String, Double[]> wordMap = new
+					 * LinkedHashMap<String, Double[]>();
+					 * 
+					 * Double[] d = new Double[2]; d[0] = 1.0; d[1] = rowNum;
+					 * wordMap.put(word, d); sensorVocMap.put(sensor, wordMap);
+					 * } rowNum++;
+					 */}
+
+			}
+		}
+
+		/*
+		 * for (Integer sensor : sensorVocMap.keySet()) { for (String word :
+		 * sensorVocMap.get(sensor).keySet()) { Double[] idf =
+		 * sensorVocMap.get(sensor).get(word); idf[0] = Math.log(size / idf[0]);
+		 * sensorVocMap.get(sensor).put(word, idf); } }
+		 */
+		for (Integer sensor : svdPrecomputeMap.keySet()) {
+			for (String gestureSensor : svdPrecomputeMap.get(sensor).keySet()) {
+				for (String term : svdPrecomputeMap.get(sensor)
+						.get(gestureSensor).keySet()) {
+					Word t = svdPrecomputeMap.get(sensor).get(gestureSensor)
+							.get(term);
+					Double[] idf = sensorVocMap.get(sensor).get(term);
+					t.setTFIdf(t.getTf() * idf[0]);
+					svdPrecomputeMap.get(sensor).get(gestureSensor)
+							.put(term, t);
+				}
+			}
+		}
+
+		precomputedQuerySVDMap = svdPrecomputeMap;
+		// return precomputedSVDMap;
+	}
+
+	/**
+	 * @param finalSVDMap
+	 *            : Sensor -> Topic -> Terms -> values
+	 * @return D-F matrix: documents in feature space which we get by
+	 *         multiplying D-T matrix and V' matrix
+	 */
+	public Map<Integer, Map<String, Map<Integer, Double>>> generateDocumentFeatureMatrixForSVDPCA(
+			Map<Integer, Map<Integer, Map<String, Double>>> finalSVDMap,
+			int flag) {
+		Map<Integer, Map<String, Map<Integer, Double>>> finalSensorMap = new HashMap<Integer, Map<String, Map<Integer, Double>>>();
+		Map<Integer, Map<String, Map<String, Word>>> tempMap;
+		if (flag == 0) {
+			tempMap = precomputedSVDMap;
+		}
+		else{
+			tempMap = precomputedQuerySVDMap;
+		}
+
+			for (Integer sensor : tempMap.keySet()) {
+				Map<String, Map<Integer, Double>> gestureSensorMap = new HashMap<String, Map<Integer, Double>>();
+				for (String gestureSensor : tempMap.get(sensor)
+						.keySet()) {
+					Map<Integer, Double> topicMap = new HashMap<Integer, Double>();
+					for (Integer topic : finalSVDMap.get(sensor).keySet()) {
+						Double value = 0.0;
+						for (String term : tempMap.get(sensor)
+								.get(gestureSensor).keySet()) {
+							value += tempMap.get(sensor)
+									.get(gestureSensor).get(term).getTFIdf()
+									* finalSVDMap.get(sensor).get(topic)
+											.get(term);
+						}
+						topicMap.put(topic, value);
+					}
+					gestureSensorMap.put(gestureSensor, topicMap);
+				}
+				finalSensorMap.put(sensor, gestureSensorMap);
+			}
+
+		return finalSensorMap;
+	}
+
+	public static Map<Integer, Map<String, Double>> generateTopicsMapFromVMatrix(
+			Map<String, Double[]> uniqueWordsMap, double[][] vtranspose) {
+		Map<Integer, Map<String, Double>> topicsMap = new HashMap<Integer, Map<String, Double>>();
+		for (int i = 0; i < 3; i++) {
+			double[] arrValues = vtranspose[i];
+			Map<String, Double> wordsValuesMap = new HashMap<String, Double>();
+			for (int j = 0; j < arrValues.length; j++) {
+				for (String word : uniqueWordsMap.keySet()) {
+					if (j == uniqueWordsMap.get(word)[1]) {
+						wordsValuesMap.put(word, arrValues[j]);
+					}
+				}
+			}
+			topicsMap.put(i + 1, wordsValuesMap);
+		}
+		return topicsMap;
+	}
+}
